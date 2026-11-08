@@ -1,0 +1,97 @@
+# PS21 real telemetry stack:
+#   backend (A->B->C, OTel SDK) -> otel-collector (tail sampling + batch) -> data-prepper -> opensearch -> dashboards
+# Start:  docker compose up -d --build        Stop:  docker compose down        Wipe data:  docker compose down -v
+# All ports are bound to 127.0.0.1 only (OpenSearch security is DISABLED for this local lab - never expose it).
+name: ps21
+
+services:
+  opensearch:
+    image: opensearchproject/opensearch:${OPENSEARCH_VERSION:-2.19.7}
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true        # local lab only: no auth, no TLS
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:${OPENSEARCH_VERSION:-2.19.7}
+    environment:
+      - 'OPENSEARCH_HOSTS=["http://opensearch:9200"]'
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+    ports:
+      - "127.0.0.1:5601:5601"
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  data-prepper:
+    image: opensearchproject/data-prepper:${DATA_PREPPER_VERSION:-2.12.0}
+    volumes:
+      - ./data-prepper/pipelines.yaml:/usr/share/data-prepper/pipelines/pipelines.yaml:ro
+      - ./data-prepper/data-prepper-config.yaml:/usr/share/data-prepper/config/data-prepper-config.yaml:ro
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:${COLLECTOR_VERSION:-0.165.0}
+    # COLLECTOR_CONFIG selects sampling ON (default) or OFF (otel-collector-nosampling.yaml) - used by the benchmarks.
+    command: ["--config=/etc/otelcol/${COLLECTOR_CONFIG:-otel-collector-config.yaml}"]
+    environment:        # pass-through from your shell / .env; unset => the Collector's built-in defaults apply
+      - BATCH_SIZE
+      - BATCH_TIMEOUT
+      - TAIL_DECISION_WAIT
+      - ORDINARY_SAMPLING_PCT
+      - SLOW_THRESHOLD_MS
+    volumes:
+      - ./collector:/etc/otelcol:ro
+    ports:
+      - "127.0.0.1:4317:4317"     # OTLP gRPC
+      - "127.0.0.1:4318:4318"     # OTLP HTTP
+      - "127.0.0.1:8888:8888"     # Collector's own Prometheus metrics
+      - "127.0.0.1:13133:13133"   # health_check extension
+    depends_on:
+      - data-prepper
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - COLLECTOR_METRICS_URL=http://otel-collector:8888/metrics
+      - OPENSEARCH_URL=http://opensearch:9200
+      - DASHBOARDS_URL=http://localhost:5601
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,https://ps21vlab.netlify.app}
+      - S3_BUCKET
+      - S3_PREFIX
+      - S3_STORAGE_CLASS
+      - AWS_REGION
+      - AWS_PROFILE
+      - AWS_ACCESS_KEY_ID       # optional temporary credentials from YOUR shell (never put them in files)
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_SESSION_TOKEN
+    ports:
+      - "127.0.0.1:4000:4000"
+    depends_on:
+      - otel-collector
+      - opensearch
+    stop_grace_period: 20s     # time for graceful shutdown (flush spans)
+    restart: unless-stopped
+
+volumes:
+  opensearch-data:

@@ -1,0 +1,11 @@
+# Sandbox/testing overlay (NOT used by Docker Compose): swaps the Data Prepper exporter for a local JSON file,
+# so the Collector's sampling + batching can be verified without OpenSearch. Merge with --config twice:
+#   otelcol-contrib --config otel-collector-config.yaml --config overlay-file-exporter.yaml
+exporters:
+  file/out:
+    path: ${env:FILE_EXPORT_PATH:-/tmp/ps21-traces.jsonl}
+    format: json
+service:
+  pipelines:
+    traces:
+      exporters: [file/out]

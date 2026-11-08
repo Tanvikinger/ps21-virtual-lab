@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+.env.*
+!.env.example
+*.pem
+*.log
+backend/node_modules
+benchmarks/results-sandbox/*.jsonl
+.DS_Store

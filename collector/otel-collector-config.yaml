@@ -1,0 +1,76 @@
+# OpenTelemetry Collector (contrib) - PS21 pipeline:
+#   OTLP receiver -> memory_limiter -> tail_sampling -> batch -> OTLP exporter -> Data Prepper -> OpenSearch
+# Tested against otelcol-contrib v0.165.0 (`otelcol-contrib validate --config ...`).
+# Values like ${env:NAME:-default} can be overridden from docker-compose / .env (used by the benchmarks).
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:            # protects the Collector itself: refuses data instead of being OOM-killed
+    check_interval: 1s
+    limit_mib: 400
+    spike_limit_mib: 100
+
+  # Tail sampling: buffer ALL spans of a trace for `decision_wait`, then decide using the whole trace.
+  # Policies are OR-ed: a trace is kept if ANY policy says "sample".
+  tail_sampling:
+    decision_wait: ${env:TAIL_DECISION_WAIT:-10s}
+    num_traces: 50000                 # max traces held in memory while waiting for a decision
+    expected_new_traces_per_sec: 100
+    policies:
+      - name: keep-error-traces       # any span with status ERROR -> keep the whole trace
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: keep-slow-traces        # end-to-end duration above threshold -> keep
+        type: latency
+        latency:
+          threshold_ms: ${env:SLOW_THRESHOLD_MS:-500}
+      - name: sample-ordinary-traces  # a percentage of everything else (fast + successful)
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: ${env:ORDINARY_SAMPLING_PCT:-10}
+
+  batch:                              # groups spans into larger export requests
+    send_batch_size: ${env:BATCH_SIZE:-512}
+    timeout: ${env:BATCH_TIMEOUT:-5s}
+
+exporters:
+  otlp/dataprepper:                   # Data Prepper `otel_trace_source` listens on 21890 (gRPC)
+    endpoint: ${env:DATAPREPPER_ENDPOINT:-data-prepper:21890}
+    tls:
+      insecure: true                  # local Docker network only
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 15s
+      max_elapsed_time: 120s
+    sending_queue:
+      enabled: true
+      queue_size: 5000
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, tail_sampling, batch]
+      exporters: [otlp/dataprepper]

@@ -1,0 +1,7 @@
+# Optional override: let the backend container use your AWS CLI profile / SSO session (read-only mount).
+#   docker compose -f docker-compose.yml -f docker-compose.aws.yml up -d --build
+# On EC2, skip this file and attach an IAM role to the instance instead (no credentials needed at all).
+services:
+  backend:
+    volumes:
+      - ~/.aws:/home/node/.aws:ro

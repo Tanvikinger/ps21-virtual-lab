@@ -1,0 +1,30 @@
+{
+  "name": "ps21-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Real Service A -> B -> C backend instrumented with OpenTelemetry (PS21 Virtual Lab)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
+    "verify:s3": "node scripts/verify-s3.mjs"
+  },
+  "devDependencies": {
+    "s3rver": "3.7.1"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.1164.0",
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/core": "2.12.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.223.0",
+    "@opentelemetry/resources": "2.12.0",
+    "@opentelemetry/sdk-trace-base": "2.12.0",
+    "@opentelemetry/sdk-trace-node": "2.12.0",
+    "@opentelemetry/semantic-conventions": "1.45.0",
+    "cors": "2.8.6",
+    "express": "4.22.3"
+  }
+}

@@ -1,0 +1,1 @@
+ssl: false      # Data Prepper's own admin API (:4900) without TLS (local lab only)
