@@ -6,7 +6,7 @@ node scripts/fault-demo.mjs service-crash     --sink opensearch:http://localhost
 node scripts/fault-demo.mjs collector-restart --sink opensearch:http://localhost:9200 --down-seconds 6
 node scripts/fault-demo.mjs collector-restart --sink opensearch:http://localhost:9200 --down-seconds 20
 ```
-Plus manual controls: Real Telemetry page (crash/recover buttons), `POST /faults/{A|B|C}/crash|recover`, `POST /faults {service, errorRate, extraLatencyMs}`, `DELETE /faults`.
+Plus manual controls: Fault Injection page (crash/recover, error rate, extra latency), `POST /faults/{A|B|C}/crash|recover`, `POST /faults {service, errorRate, extraLatencyMs}`, `DELETE /faults`.
 
 ## Results from the delivery environment (real Collector, file exporter, 40 requests per batch)
 

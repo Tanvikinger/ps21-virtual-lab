@@ -19,32 +19,32 @@ export const NODE_DEFS: { id: NodeId; title: string; desc: string; Icon: LucideI
   { id: 'archival', title: 'Archival Worker', desc: 'Moves eligible traces to cold storage.', Icon: Archive, x: 500, y: 540 },
   { id: 'opensearch', title: 'OpenSearch - Searchable Storage', desc: 'Indexes traces so they can be searched.', Icon: Database, x: 750, y: 540 },
 ];
-const BORDER: Record<string, string> = { ok: 'border-indigo-400', idle: 'border-slate-300', warn: 'border-amber-400', down: 'border-red-500' };
+const BORDER: Record<string, string> = { ok: 'border-sky-400', idle: 'border-slate-300', warn: 'border-amber-400', down: 'border-red-500' };
 const CHIP: Record<string, string> = { ok: 'bg-emerald-100 text-emerald-800', idle: 'bg-slate-100 text-slate-600', warn: 'bg-amber-100 text-amber-800', down: 'bg-red-100 text-red-800' };
 const STATUS_TXT: Record<string, string> = { ok: 'Healthy', idle: 'Idle', warn: 'Busy / backlog', down: 'FAULT' };
 
 function LabNode({ data }: NodeProps<Node<NData, 'lab'>>) {
   const { title, desc, Icon, stat, selected } = data;
   return (
-    <div className={`w-[200px] rounded-lg border-2 bg-white p-2 text-left shadow-sm ${BORDER[stat.status]} ${selected ? 'ring-2 ring-violet-500' : ''} ${stat.status === 'down' ? 'bg-red-50' : ''}`}>
-      <Handle type="target" position={Position.Left} id="tl" className="!h-2 !w-2 !bg-indigo-400" />
-      <Handle type="target" position={Position.Top} id="tt" className="!h-2 !w-2 !bg-indigo-400" />
-      <Handle type="target" position={Position.Right} id="tr" className="!h-2 !w-2 !bg-indigo-400" />
-      <Handle type="source" position={Position.Right} id="sr" className="!h-2 !w-2 !bg-violet-500" />
-      <Handle type="source" position={Position.Bottom} id="sb" className="!h-2 !w-2 !bg-violet-500" />
-      <Handle type="source" position={Position.Left} id="sl" className="!h-2 !w-2 !bg-violet-500" />
-      <div className="flex items-center gap-1.5 text-[13px] font-semibold leading-tight text-indigo-950"><Icon size={16} className="shrink-0 text-indigo-600" />{title}</div>
+    <div className={`w-[200px] rounded-lg border-2 bg-white p-2 text-left shadow-sm ${BORDER[stat.status]} ${selected ? 'ring-2 ring-sky-500' : ''} ${stat.status === 'down' ? 'bg-red-50' : ''}`}>
+      <Handle type="target" position={Position.Left} id="tl" className="!h-2 !w-2 !bg-sky-400" />
+      <Handle type="target" position={Position.Top} id="tt" className="!h-2 !w-2 !bg-sky-400" />
+      <Handle type="target" position={Position.Right} id="tr" className="!h-2 !w-2 !bg-sky-400" />
+      <Handle type="source" position={Position.Right} id="sr" className="!h-2 !w-2 !bg-sky-500" />
+      <Handle type="source" position={Position.Bottom} id="sb" className="!h-2 !w-2 !bg-sky-500" />
+      <Handle type="source" position={Position.Left} id="sl" className="!h-2 !w-2 !bg-sky-500" />
+      <div className="flex items-center gap-1.5 text-[13px] font-semibold leading-tight text-slate-900"><Icon size={16} className="shrink-0 text-sky-600" />{title}</div>
       <div className="mt-0.5 text-[10.5px] leading-snug text-slate-500">{desc}</div>
       <div className="mt-1 flex items-center justify-between text-[10.5px]">
         <span className={`rounded px-1.5 py-0.5 font-semibold ${CHIP[stat.status]}`}>{stat.status === 'down' ? '⚠ ' : ''}{STATUS_TXT[stat.status]}</span>
         <span className="text-slate-600">in {stat.inCount} → out {stat.outCount}</span>
       </div>
-      <div className="mt-0.5 flex justify-between text-[10px] text-slate-500"><span>{stat.note}</span><span className="font-medium text-violet-700">⚙ Configure</span></div>
+      <div className="mt-0.5 flex justify-between text-[10px] text-slate-500"><span>{stat.note}</span><span className="font-medium text-sky-700">⚙ Configure</span></div>
     </div>
   );
 }
 function LaneNode({ data }: NodeProps<Node<{ text: string }, 'lane'>>) {
-  return <div className="w-[600px] text-[11px] font-bold tracking-wide text-violet-700">{data.text}</div>;
+  return <div className="w-[600px] text-[11px] font-bold tracking-wide text-sky-700">{data.text}</div>;
 }
 const nodeTypes: NodeTypes = { lab: LabNode as never, lane: LaneNode as never };
 
@@ -77,9 +77,9 @@ export function LabCanvas({ stats, selected, onSelect, running }: { stats: Recor
         <Controls showInteractive={false} />
         <FlowPanel position="top-right">
           <div className="rounded bg-white/90 p-2 text-[10.5px] shadow">
-            <div className="mb-1 flex items-center gap-1 font-semibold text-indigo-950"><Activity size={12} /> Simulated - click any box to configure</div>
-            <div className="flex items-center gap-1"><span className="inline-block h-0 w-6 border-t-2 border-indigo-600" /> application request</div>
-            <div className="flex items-center gap-1"><span className="inline-block h-0 w-6 border-t-2 border-dashed border-violet-600" /> telemetry (trace data)</div>
+            <div className="mb-1 flex items-center gap-1 font-semibold text-slate-900"><Activity size={12} /> Simulated - click any box to configure</div>
+            <div className="flex items-center gap-1"><span className="inline-block h-0 w-6 border-t-2 border-sky-600" /> application request</div>
+            <div className="flex items-center gap-1"><span className="inline-block h-0 w-6 border-t-2 border-dashed border-sky-600" /> telemetry (trace data)</div>
             <div className="flex items-center gap-1"><span className="inline-block h-0 w-6 border-t-2 border-dotted border-blue-600" /> archival</div>
           </div>
         </FlowPanel>

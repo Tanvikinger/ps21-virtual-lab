@@ -1,65 +1,44 @@
-# Setup and execution guide (Windows, PowerShell, VS Code, Docker Desktop)
+# Setup (Windows, PowerShell, Docker Desktop, VS Code)
 
-## 0. One-time prerequisites
-1. **Docker Desktop** installed and running (WSL2 backend). Give it >= 4 GB RAM (Settings -> Resources).
-2. **Node.js 20 or 22** (`node -v`).
-3. **Git** and **VS Code**.
+## Prerequisites
+Docker Desktop running (WSL2, give it ≥ 4 GB RAM), Node.js 20/22, Git, AWS CLI configured (`aws sts get-caller-identity` works).
 
-## 1. Get the code
-Unzip the delivered files into your repo folder (`ps21-virtual-lab`), keeping your `.git`. Then:
+## 1. Configure
 ```powershell
-cd path\to\ps21-virtual-lab
-git status          # review the new files before you commit anything
+Copy-Item .env.example .env
+notepad .env        # set S3_BUCKET and AWS_REGION (same region as the bucket); keep CLOUDWATCH_ENABLED=true
 ```
-> Your repo currently stores the source only inside `ps21-virtual-lab.zip`. After you extract, `src/`, `tests/`, `vite.config.ts`, `tsconfig.json`, `tailwind.config.js` should be committed as normal files (your decision; nothing was committed for you).
+Never commit `.env` (it is in `.gitignore`).
 
-## 2. Start the real stack
+## 2. Start everything
 ```powershell
-Copy-Item .env.example .env        # optional; defaults work without editing
-docker compose up -d --build
-docker compose ps
+cd backend; npm install; cd ..     # once: refreshes backend/package-lock.json (adds the CloudWatch SDK)
+docker compose -f docker-compose.yml -f docker-compose.aws.yml up -d --build
+docker compose ps                   # 5 services; OpenSearch needs ~60 s to become healthy
 ```
-Expected: 5 services (`opensearch`, `opensearch-dashboards`, `data-prepper`, `otel-collector`, `backend`). OpenSearch takes ~30-60 s to become healthy; the others wait for it.
+Open **http://localhost:4000**. The header badge must say **System healthy**.
 
-Check:
+## 3. Check it works
 ```powershell
-curl.exe http://localhost:4000/health        # {"status":"ok",...,"services":{"A":"up","B":"up","C":"up"}}
-curl.exe http://localhost:13133              # Collector: "Server available"
-curl.exe http://localhost:9200/_cluster/health
-```
-
-## 3. Start the frontend
-```powershell
-npm ci
-npm run dev
-```
-Open http://localhost:5173 -> **Real Telemetry (backend)** -> *Send requests*. The Connection panel should say **Connected**.
-
-## 4. Verify the pipeline end to end
-```powershell
+curl.exe http://localhost:4000/health
 node scripts/verify-pipeline.mjs --sink opensearch:http://localhost:9200 --count 300 --wait 30
 ```
-Expected: all lines `PASS` (all error traces retained, slow traces retained, ordinary traces ~10%, no partial traces). Then open http://localhost:5601 -> Observability -> **Trace analytics** -> Traces, or query:
-```powershell
-curl.exe "http://localhost:9200/otel-v1-apm-span-*/_count"
-```
+Then in the UI: *Traffic & Traces → Send requests*, *Dashboard* (graphs move), *AWS Cloud → Archive to S3* and *Publish now*.
 
-## 5. Tests
+## UI development (optional)
 ```powershell
-npm test                          # frontend: 19 tests
-npm run build                     # frontend build
-cd backend; npm ci; npm test      # backend: 15 tests
+npm ci
+npm run dev          # http://localhost:5173, talks to the backend on :4000
+npm run build        # type-check + production build
+npm test
 ```
-
-## 6. S3 and the rest
-See `docs/AWS_SETUP.md`, `docs/BENCHMARKS.md`, `docs/FAULT_TOLERANCE.md`.
 
 ## Troubleshooting
 | Symptom | Fix |
 |---|---|
-| OpenSearch keeps restarting | Docker Desktop memory < 4 GB, or in WSL: `wsl -d docker-desktop sysctl -w vm.max_map_count=262144` |
-| Real page says "Cannot reach the backend" | `docker compose logs backend`; check `curl.exe localhost:4000/health`; on the Netlify site the backend must run on YOUR PC and CORS_ORIGINS must include the site origin |
-| Trace shows "Not indexed (inferred)" | Normal for ~90% of ordinary fast successful traces (sampled out). Error and slow traces should appear after ~15-20 s |
-| Collector exits at start | `docker compose logs otel-collector` (config error text is explicit) |
-| Data Prepper errors | `docker compose logs data-prepper`; it retries until OpenSearch is ready |
-| Port already in use | stop the other program or change the left side of the port mapping |
+| Header says *Backend offline* | `docker compose ps`; `docker compose logs backend` |
+| OpenSearch keeps restarting | Docker Desktop memory < 4 GB, or `wsl -d docker-desktop sysctl -w vm.max_map_count=262144` |
+| AWS Cloud page: *Unable to locate / load credentials* | You started without the AWS override. Use the `-f docker-compose.aws.yml` command above, and run `aws sso login` if you use SSO |
+| S3: *AccessDenied* | IAM user lacks the policy in docs/AWS_SETUP.md step 3 |
+| CloudWatch charts empty | Data takes 1-2 min to appear; press Publish now, then Refresh |
+| Port already in use | `docker compose down` first (or stop the old project's containers) |

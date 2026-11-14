@@ -12,7 +12,7 @@ $B = "your-bucket"; $R = "ap-south-1"
 aws s3 ls s3://$B/telemetry/ --recursive            # review first
 aws s3 rm s3://$B/telemetry/ --recursive            # delete archived objects
 aws s3api delete-bucket --bucket $B --region $R     # bucket must be empty (and unversioned)
-aws cloudwatch delete-alarms --alarm-names ps21-archive-size --region $R
+aws cloudwatch delete-alarms --alarm-names TraceFlow-HighErrorRate --region $R   # custom metrics expire by themselves after 15 months
 ```
 IAM: detach and delete the policy/user/role you created for this project (IAM console -> Policies -> your policy -> "Entities attached" first).
 EC2 (if you used it): terminate the instance, delete its EBS volume and any Elastic IP, delete the security group. Then check **Billing -> Cost Explorer** the next day.

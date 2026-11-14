@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart LR
-  UI["React frontend (Vite)<br/>Simulation pages + Real Telemetry page"] -->|"HTTP :4000"| API
+  UI["React frontend (Vite)<br/>Dashboard, Pipeline Simulator, Traffic &amp; Traces, Fault Injection, AWS Cloud"] -->|"HTTP :4000"| API
   subgraph Backend["backend (Node + Express, one container)"]
     API["Gateway API<br/>/health /simulate /faults /archive ..."] --> A["Service A :4001"]
     A -->|"HTTP + traceparent"| B["Service B :4002"]
@@ -26,8 +26,8 @@ flowchart LR
 
 | Component | Where | Role |
 |---|---|---|
-| React frontend | `src/` | Original educational simulator (unchanged) + new **Real Telemetry** page (`src/pages/Real.tsx`, `src/realApi.ts`). |
-| Gateway API | `backend/src/app.js` | `GET /health`, `POST /simulate`, faults, trace status, pipeline metrics, S3 archive. Validates input, CORS, graceful shutdown. |
+| React frontend | `src/` | Five pages: Dashboard, Pipeline Simulator (`src/simulator/`, in-browser simulation), and the real-backend pages Traffic & Traces, Fault Injection, AWS Cloud (`src/pages/`). API client: `src/realApi.ts`. The product name is set in `src/brand.ts`. |
+| Gateway API | `backend/src/app.js` | `GET /health`, `POST /simulate` (traffic generator), faults, trace status, pipeline metrics, `GET /metrics/history` (dashboard time series), S3 archive, `/cloudwatch/*` (publish, read back, alarm). Also serves the built UI (`STATIC_DIR`). Validates input, CORS, graceful shutdown. |
 | Services A, B, C | `backend/src/services.js` | Three real HTTP servers on loopback. A starts the trace, calls B, B calls C. Latency and failures are injected per request (seeded, reproducible). |
 | OTel SDK | `backend/src/telemetry.js` | One tracer provider per service so each span has the right `service.name`; OTLP/HTTP export with `BatchSpanProcessor`; W3C trace-context propagation; errors recorded with `recordException` + status ERROR. |
 | Collector | `collector/otel-collector-config.yaml` | `memory_limiter` -> `tail_sampling` -> `batch` -> OTLP exporter. |

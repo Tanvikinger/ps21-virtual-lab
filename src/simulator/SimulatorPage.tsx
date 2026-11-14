@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react';
-import { Simulator } from '../engine/simulationEngine';
-import { componentStats, computeMetrics, type NodeId } from '../engine/metrics';
-import { PRESETS, merge, DEFAULT_CONFIG } from '../engine/config';
-import { LabCanvas } from '../components/LabCanvas';
-import { NodePanel, useUpdaters } from '../components/NodePanel';
-import { TraceDetail, TraceTable } from '../components/TraceViews';
-import { MetricsPanel } from '../components/Charts';
-import { Empty, NumField, Stat } from '../components/ui';
-import type { SimEvent } from '../engine/types';
-import type { Ctx } from './ctx';
+import { Simulator } from './engine/simulationEngine';
+import { componentStats, computeMetrics, type NodeId } from './engine/metrics';
+import { PRESETS, merge, DEFAULT_CONFIG } from './engine/config';
+import { LabCanvas } from './components/LabCanvas';
+import { NodePanel, useUpdaters } from './components/NodePanel';
+import { TraceDetail, TraceTable } from './components/TraceViews';
+import { MetricsPanel } from './components/Charts';
+import { Empty, NumField, Stat } from './components/ui';
+import type { SimEvent } from './engine/types';
+import { Pause, Play, Repeat, RotateCcw, SkipForward } from 'lucide-react';
+import type { SimState } from './useSimulator';
 
 export function EventList({ events, only, limit = 80 }: { events: SimEvent[]; only?: string[]; limit?: number }) {
   const rows = (only ? events.filter((e) => only.includes(e.type) || e.level === 'error') : events).slice(-limit).reverse();
@@ -21,7 +22,7 @@ export function EventList({ events, only, limit = 80 }: { events: SimEvent[]; on
   );
 }
 
-export function LabPage({ config, setConfig, lab, errors }: Ctx) {
+export function SimulatorPage({ config, setConfig, lab, errors }: SimState) {
   const [sel, setSel] = useState<NodeId | null>(null);
   const [tab, setTab] = useState<'node' | 'workload'>('node');
   const [bottom, setBottom] = useState<'traces' | 'events' | 'metrics'>('traces');
@@ -31,12 +32,26 @@ export function LabPage({ config, setConfig, lab, errors }: Ctx) {
   const idle = useMemo(() => { const s = new Simulator(config); return componentStats(s, computeMetrics(s)); }, [config]);
   const stats = sim && m ? componentStats(sim, m) : idle;
   const t = config.traffic;
+  const finished = !!sim && sim.isDone();
+  const startLabel = lab.running ? 'Pause' : sim && !finished ? 'Resume' : 'Start Simulation';
   const tr = sim?.traces.find((x) => x.id === traceId) ?? null;
   return (
     <div className="space-y-3">
       <div>
-        <h1 className="text-lg font-semibold text-indigo-950">Virtual Lab</h1>
-        <p className="text-xs text-slate-600">Configure the system, start a workload, and watch requests travel through Services A→B→C while their trace data flows through the telemetry pipeline. Everything here is <b>simulated</b> in your browser.</p>
+        <h1 className="text-xl font-semibold text-slate-900">Pipeline Simulator</h1>
+        <p className="text-sm text-slate-500">Configure every component, start a workload and watch requests travel through Services A→B→C while their trace data flows through the telemetry pipeline. This page is a deterministic <b>simulation</b> that runs in your browser; the other pages use the real backend.</p>
+      </div>
+      <div className="panel flex flex-wrap items-center gap-2">
+        <button className="btn btn-primary" disabled={errors.length > 0} title={errors[0]} onClick={() => (lab.running ? lab.pause() : lab.start(config))}>{lab.running ? <Pause size={14} /> : <Play size={14} />}{startLabel}</button>
+        <button className="btn btn-ghost" disabled={lab.running || finished} onClick={() => lab.step(config)} title="Advance 250 virtual ms"><SkipForward size={14} />Step</button>
+        <button className="btn btn-ghost" onClick={() => { if (!sim || window.confirm('Reset the current simulation? All traces, events and metrics of this run will be cleared.')) lab.reset(); }}><RotateCcw size={14} />Reset</button>
+        <button className="btn btn-ghost" disabled={errors.length > 0} onClick={() => lab.restart(config)} title="Restart with the same seed and the current settings"><Repeat size={14} />Run again (same seed)</button>
+        <label className="flex items-center gap-1 text-xs text-slate-600">Speed<select className="input !w-16" value={lab.speed} onChange={(e) => lab.setSpeed(Number(e.target.value))}>{[1, 2, 5, 10, 25].map((v) => <option key={v} value={v}>{v}x</option>)}</select></label>
+        <div className="ml-auto flex items-center gap-3 text-xs text-slate-600">
+          <span>seed {t.seed}</span><span className="tabular-nums">virtual time {((m?.virtualTimeMs ?? 0) / 1000).toFixed(1)} s</span>
+          <span className={`rounded px-2 py-0.5 font-semibold ${lab.running ? 'bg-emerald-100 text-emerald-800' : finished ? 'bg-sky-100 text-sky-800' : 'bg-slate-100 text-slate-600'}`}>{lab.running ? 'Running' : finished ? 'Finished' : sim ? 'Paused' : 'Ready'}</span>
+        </div>
+        {errors.length > 0 && <div className="w-full rounded bg-red-50 px-2 py-1 text-xs text-red-800">Fix before starting: {errors[0]} (see Workload below).</div>}
       </div>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
         <Stat label="1 · Generated" value={m?.generated ?? 0} help="Requests created by the traffic generator." />

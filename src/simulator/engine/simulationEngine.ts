@@ -14,7 +14,7 @@ export const FAULT_LABELS: Record<FaultKind, string> = {
 export const describeFault = (f: FaultSpec) => FAULT_LABELS[f.kind] + (f.target ? ` (Service ${f.target})` : '');
 
 /**
- * Deterministic discrete-event simulator of the PS21 pipeline (virtual clock, milliseconds).
+ * Deterministic discrete-event simulator of the telemetry pipeline (virtual clock, milliseconds).
  * Nothing here touches the DOM or real time: advance(toMs) processes scheduled events in order.
  */
 export class Simulator {

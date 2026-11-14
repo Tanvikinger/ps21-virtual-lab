@@ -42,7 +42,7 @@ export function NodePanel({ id, stat, config, setConfig, locked }: { id: NodeId 
   const c = config;
   return (
     <div>
-      <div className="mb-1 flex items-center justify-between"><h3 className="text-sm font-semibold text-indigo-950">{def.title}</h3>{stat && <Badge tone={stat.status === 'down' ? 'red' : stat.status === 'warn' ? 'amber' : stat.status === 'ok' ? 'green' : 'slate'}>{stat.note}</Badge>}</div>
+      <div className="mb-1 flex items-center justify-between"><h3 className="text-sm font-semibold text-slate-900">{def.title}</h3>{stat && <Badge tone={stat.status === 'down' ? 'red' : stat.status === 'warn' ? 'amber' : stat.status === 'ok' ? 'green' : 'slate'}>{stat.note}</Badge>}</div>
       <p className="mb-2 text-xs text-slate-500">{def.desc} {locked && <span className="text-amber-700">A run is in progress - edits apply to the next run.</span>}</p>
       {id === 'traffic' && <p className="text-xs text-slate-600">Edit traffic settings in the <b>Workload</b> tab.</p>}
       {(id === 'A' || id === 'B' || id === 'C') && (<>
@@ -54,7 +54,7 @@ export function NodePanel({ id, stat, config, setConfig, locked }: { id: NodeId 
         <NumField label="Processing time per trace" suffix="ms" step={0.5} value={c.collector.msPerTrace} onChange={(v) => sec('collector', { msPerTrace: v })} help="Collector capacity = 1000 / this value traces per second." />
         <NumField label="Backlog limit" suffix="traces" value={c.collector.backlogLimit} onChange={(v) => sec('collector', { backlogLimit: v })} help="Telemetry arriving while this many traces are waiting is lost." />
       </>)}
-      {id === 'tail' && (<><p className="mb-2 rounded bg-violet-50 p-2 text-xs text-violet-900">Tail sampling waits for enough information about a trace before deciding whether to keep it, so important traces (errors, slow requests) can be retained.</p><SamplingFields c={c} sec={sec} /></>)}
+      {id === 'tail' && (<><p className="mb-2 rounded bg-sky-50 p-2 text-xs text-sky-900">Tail sampling waits for enough information about a trace before deciding whether to keep it, so important traces (errors, slow requests) can be retained.</p><SamplingFields c={c} sec={sec} /></>)}
       {id === 'batch' && <BatchFields c={c} sec={sec} />}
       {id === 'exporter' && <><Toggle label="Exporter available" checked={c.storage.exporterAvailable} onChange={(v) => sec('storage', { exporterAvailable: v })} help="Off = exports fail and are retried, then abandoned." /><NumField label="Export retries" value={c.batch.maxRetries} onChange={(v) => sec('batch', { maxRetries: v })} /></>}
       {id === 'opensearch' && (<>

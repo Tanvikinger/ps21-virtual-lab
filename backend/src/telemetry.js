@@ -43,12 +43,12 @@ export function createTelemetry(config, env = process.env) {
   for (const role of ['A', 'B', 'C']) {
     const exporter = new CountingExporter(new OTLPTraceExporter({ url: `${config.otlpEndpoint}/v1/traces`, timeoutMillis: config.sdkBatch.exportTimeoutMillis }), stats);
     providers[role] = new NodeTracerProvider({
-      resource: resourceFromAttributes({ [ATTR_SERVICE_NAME]: SERVICE_NAMES[role], 'service.namespace': 'ps21', 'deployment.environment.name': env.DEPLOY_ENV ?? 'local' }),
+      resource: resourceFromAttributes({ [ATTR_SERVICE_NAME]: SERVICE_NAMES[role], 'service.namespace': 'traceflow', 'deployment.environment.name': env.DEPLOY_ENV ?? 'local' }),
       spanProcessors: [new CountingProcessor(role, stats), new BatchSpanProcessor(exporter, config.sdkBatch)],
     });
   }
   if (!globalsRegistered) { providers.A.register(); globalsRegistered = true; } // installs AsyncLocalStorage context manager + W3C trace-context propagator globally
-  const tracers = Object.fromEntries(Object.entries(providers).map(([r, p]) => [r, p.getTracer(`ps21.${SERVICE_NAMES[r]}`, '1.0.0')]));
+  const tracers = Object.fromEntries(Object.entries(providers).map(([r, p]) => [r, p.getTracer(`traceflow.${SERVICE_NAMES[r]}`, '1.0.0')]));
 
   return {
     tracers, stats,

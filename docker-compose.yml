@@ -1,8 +1,8 @@
-# PS21 real telemetry stack:
+# TraceFlow telemetry stack:
 #   backend (A->B->C, OTel SDK) -> otel-collector (tail sampling + batch) -> data-prepper -> opensearch -> dashboards
 # Start:  docker compose up -d --build        Stop:  docker compose down        Wipe data:  docker compose down -v
 # All ports are bound to 127.0.0.1 only (OpenSearch security is DISABLED for this local lab - never expose it).
-name: ps21
+name: traceflow
 
 services:
   opensearch:
@@ -70,23 +70,30 @@ services:
     restart: unless-stopped
 
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - COLLECTOR_METRICS_URL=http://otel-collector:8888/metrics
       - OPENSEARCH_URL=http://opensearch:9200
       - DASHBOARDS_URL=http://localhost:5601
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,https://ps21vlab.netlify.app}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
       - S3_BUCKET
       - S3_PREFIX
       - S3_STORAGE_CLASS
       - AWS_REGION
       - AWS_PROFILE
+      - DEPLOY_ENV
+      - CLOUDWATCH_ENABLED
+      - CLOUDWATCH_NAMESPACE
+      - CLOUDWATCH_INTERVAL_SEC
+      - CLOUDWATCH_ERROR_ALARM_PCT
       - AWS_ACCESS_KEY_ID       # optional temporary credentials from YOUR shell (never put them in files)
       - AWS_SECRET_ACCESS_KEY
       - AWS_SESSION_TOKEN
     ports:
-      - "127.0.0.1:4000:4000"
+      - "${BACKEND_BIND:-127.0.0.1}:4000:4000"   # BACKEND_BIND=0.0.0.0 on a server (EC2) so the UI is reachable from outside
     depends_on:
       - otel-collector
       - opensearch

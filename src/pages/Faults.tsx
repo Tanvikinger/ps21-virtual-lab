@@ -1,71 +1,78 @@
-import { useState } from 'react';
-import { FAULT_LABELS, describeFault } from '../engine/simulationEngine';
-import { componentStats } from '../engine/metrics';
-import type { FaultKind, ServiceId } from '../engine/types';
-import { Badge, Empty, Field, NumField, Panel, Stat } from '../components/ui';
-import { EventList } from './Lab';
-import type { Ctx } from './ctx';
+import { useCallback, useEffect, useState } from 'react';
+import { HeartPulse, Play, RotateCcw, Skull } from 'lucide-react';
+import { ChartCard, COLORS, TimeChart } from '../components/Charts';
+import { Badge, ErrorBox, Field, PageHeader, Panel, fmtMs } from '../components/ui';
+import { api, type FaultsResponse, type HistoryPoint } from '../realApi';
+import type { Backend } from '../useBackend';
 
-const MAG: Partial<Record<FaultKind, { label: string; def: number; help: string; step: number }>> = {
-  service_latency: { label: 'Latency multiplier (x)', def: 5, help: 'The service takes this many times longer.', step: 1 },
-  service_errors: { label: 'Added error probability', def: 0.5, help: '0.5 = 50% extra chance each call fails.', step: 0.1 },
-  collector_slow: { label: 'Slowdown factor (x)', def: 40, help: 'Collector processing time per trace is multiplied by this.', step: 5 },
-  queue_saturation: { label: 'Reduced queue capacity (records)', def: 5, help: 'The batch queue can only hold this many records.', step: 1 },
-};
+const SVCS = ['A', 'B', 'C'] as const;
+const SCENARIOS: { label: string; desc: string; apply: () => Promise<unknown> }[] = [
+  { label: 'Crash Service B', desc: 'Service B stops answering; A reports the failure.', apply: () => api.crash('B') },
+  { label: 'Slow Service C (+800 ms)', desc: 'Every request spends 800 ms longer in C.', apply: () => api.setFault('C', { extraLatencyMs: 800 }) },
+  { label: '30% errors in Service A', desc: 'A fails roughly one request in three.', apply: () => api.setFault('A', { errorRate: 0.3 }) },
+];
 
-export function FaultsPage({ config, lab }: Ctx) {
-  const [kind, setKind] = useState<FaultKind>('service_down');
-  const [target, setTarget] = useState<ServiceId>('B');
-  const [dur, setDur] = useState<number>(NaN);
-  const [mag, setMag] = useState<number>(NaN);
-  const { sim, metrics: m } = lab;
-  const isSvc = kind.startsWith('service_');
-  const mg = MAG[kind];
-  const inject = () => {
-    const s = lab.ensure(config);
-    s.addFault({ kind, target: isSvc ? target : undefined, startMs: s.now, endMs: Number.isFinite(dur) && dur > 0 ? s.now + dur * 1000 : null, magnitude: mg ? (Number.isFinite(mag) ? mag : mg.def) : undefined });
-    lab.touch();
+export function FaultsPage({ b }: { b: Backend }) {
+  const [f, setF] = useState<FaultsResponse | null>(null);
+  const [draft, setDraft] = useState<Record<string, { err: number; lat: number }>>({ A: { err: 0, lat: 0 }, B: { err: 0, lat: 0 }, C: { err: 0, lat: 0 } });
+  const [pts, setPts] = useState<HistoryPoint[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+  const [probe, setProbe] = useState<{ busy: boolean; text?: string }>({ busy: false });
+  const ok = b.health.ok;
+
+  const load = useCallback(async () => {
+    try { setF(await api.faults()); setPts((await api.history(5)).points); } catch (e) { setErr((e as Error).message); }
+  }, []);
+  useEffect(() => { if (!ok) return; load(); const id = setInterval(load, 4000); return () => clearInterval(id); }, [ok, load]);
+
+  const act = async (fn: () => Promise<unknown>) => { setErr(null); try { await fn(); await load(); b.refresh(); } catch (e) { setErr((e as Error).message); } };
+  const apply = (s: string) => act(() => api.setFault(s, { errorRate: draft[s].err / 100, extraLatencyMs: draft[s].lat }));
+  const reset = () => act(async () => { await api.resetFaults(); for (const s of SVCS) if (f?.services[s] === 'down') await api.recover(s); setDraft({ A: { err: 0, lat: 0 }, B: { err: 0, lat: 0 }, C: { err: 0, lat: 0 } }); });
+  const sendProbe = async () => {
+    setProbe({ busy: true });
+    try { const r = await api.simulate({ count: 30, concurrency: 5, errorRate: 0, slowRate: 0, failService: null, includeSpans: false }); setProbe({ busy: false, text: `${r.summary.ok} of ${r.summary.requested} succeeded · avg ${fmtMs(r.summary.avgLatencyMs)} · p95 ${fmtMs(r.summary.p95LatencyMs)}` }); load(); }
+    catch (e) { setProbe({ busy: false }); setErr((e as Error).message); }
   };
-  const active = (sim?.faults ?? []).filter((f) => f.endMs == null || f.endMs > sim!.now);
-  const stats = sim && m ? componentStats(sim, m) : null;
-  const rec = m ? {
-    recovered: [m.peakIndexPending > 0 && m.indexPending === 0 && m.indexFailed === 0 && `Index backlog (peak ${m.peakIndexPending}) fully drained.`, m.peakArchivePending > 0 && m.archivePending === 0 && `Archive backlog (peak ${m.peakArchivePending}) written to cold storage.`, m.exportRetries > 0 && m.exportFailed === 0 && `${m.exportRetries} export retries succeeded; no batch abandoned.`].filter(Boolean) as string[],
-    pending: [m.indexPending > 0 && `${m.indexPending} traces waiting to be indexed.`, m.archivePending > 0 && `${m.archivePending} traces waiting for cold storage.`, m.queueNow > 0 && `${m.queueNow} records in the export queue.`, m.pendingSampling > 0 && `${m.pendingSampling} traces awaiting a sampling decision.`].filter(Boolean) as string[],
-    lost: [m.failed > 0 && `${m.failed} requests failed (no retry on the request path - not recovered).`, m.lost > 0 && `${m.lost} traces' telemetry lost before sampling.`, m.incomplete > 0 && `${m.incomplete} traces incomplete (spans too late).`, m.queueDropped > 0 && `${m.queueDropped} records dropped: queue full.`, m.exportFailed > 0 && `${m.exportFailed} records lost: export retries exhausted.`, m.indexFailed > 0 && `${m.indexFailed} traces not searchable: indexing retries exhausted.`].filter(Boolean) as string[],
-  } : null;
+  const anyFault = f && SVCS.some((s) => f.services[s] === 'down' || f.faults[s].errorRate > 0 || f.faults[s].extraLatencyMs > 0);
+
   return (
-    <div className="space-y-3">
-      <div><h1 className="text-lg font-semibold text-indigo-950">Fault Injection Lab</h1><p className="text-xs text-slate-600">Break a component while the simulation runs, watch what changes, then remove the fault and see what recovers. Only mechanisms that exist in the model happen: export retries (3, with back-off), index retries (12 attempts), a bounded queue, and periodic archive retries. The request path has no retries.</p></div>
-      <div className="grid gap-3 lg:grid-cols-[320px_1fr]">
-        <Panel title="Inject a fault">
-          <Field label="Component / fault"><select className="input" value={kind} onChange={(e) => { setKind(e.target.value as FaultKind); setMag(NaN); }}>{(Object.keys(FAULT_LABELS) as FaultKind[]).map((k) => <option key={k} value={k}>{FAULT_LABELS[k]}</option>)}</select></Field>
-          {isSvc && <Field label="Service"><select className="input" value={target} onChange={(e) => setTarget(e.target.value as ServiceId)}><option>A</option><option>B</option><option>C</option></select></Field>}
-          {mg && <NumField label={mg.label} help={mg.help} step={mg.step} value={Number.isFinite(mag) ? mag : mg.def} onChange={setMag} />}
-          <NumField label="Duration" suffix="virtual s, blank = until removed" value={dur} onChange={setDur} />
-          <button className="btn btn-danger w-full" onClick={inject}>Inject fault now</button>
-          {!sim && <p className="mt-2 text-[11px] text-slate-500">No run yet: the fault is armed on a fresh paused run. Press <b>Start Simulation</b> to begin.</p>}
-          {sim && !lab.running && !sim.isDone() && <p className="mt-2 text-[11px] text-amber-700">The simulation is paused; the fault takes effect once it resumes.</p>}
-        </Panel>
-        <div className="space-y-3">
-          <Panel title="Active and scheduled faults">
-            {!active.length ? <Empty>No active faults. Inject one on the left while a simulation is running.</Empty> : active.map((f) => (
-              <div key={f.id} className="flex items-center justify-between border-t border-slate-100 py-1 text-sm"><span><Badge tone="red">{f.startMs > sim!.now ? 'scheduled' : 'ACTIVE'}</Badge> {describeFault(f)} <span className="text-xs text-slate-500">from {(f.startMs / 1000).toFixed(1)} s{f.endMs != null ? ` to ${(f.endMs / 1000).toFixed(1)} s` : ' until removed'}</span></span><button className="btn btn-ghost !py-0.5 text-xs" onClick={() => { sim!.removeFault(f.id); lab.touch(); }}>Remove fault</button></div>
-            ))}
-            {stats && <div className="mt-2 flex flex-wrap gap-1 text-[11px]">{(Object.keys(stats) as (keyof typeof stats)[]).map((k) => <Badge key={k} tone={stats[k].status === 'down' ? 'red' : stats[k].status === 'warn' ? 'amber' : 'slate'}>{k}: {stats[k].status}</Badge>)}</div>}
-          </Panel>
-          <Panel title="Fault timeline"><div className="h-40 overflow-auto"><EventList events={sim?.events ?? []} only={['fault', 'recovery', 'export', 'index', 'archive']} /></div></Panel>
+    <div className="space-y-4">
+      <PageHeader title="Fault Injection" sub="Break the real services on purpose and watch how the telemetry captures it, then recover."
+        right={<button className="btn btn-ghost" onClick={reset} disabled={!ok}><RotateCcw size={14} />Reset everything</button>} />
+      {err && <ErrorBox>{err}</ErrorBox>}
+
+      <Panel title="Quick scenarios" sub="One click to inject a failure, then press “Send 30 test requests” and look at the chart below.">
+        <div className="flex flex-wrap gap-2">
+          {SCENARIOS.map((s) => <button key={s.label} title={s.desc} className="btn btn-ghost" disabled={!ok} onClick={() => act(s.apply)}>{s.label}</button>)}
+          <button className="btn btn-primary ml-auto" disabled={!ok || probe.busy} onClick={sendProbe}><Play size={14} />{probe.busy ? 'Sending…' : 'Send 30 test requests'}</button>
         </div>
-      </div>
-      <Panel title="Recovery Summary" help="Computed from the current run's recorded outcomes.">
-        {!m || !m.generated ? <Empty>Run a simulation and inject a fault to see what recovered, what is still pending and what was lost.</Empty> : (
-          <div className="grid gap-3 md:grid-cols-3 text-xs">
-            {([['Recovered', 'bg-emerald-50 text-emerald-900', rec!.recovered, 'Nothing has needed recovery yet.'], ['Still pending', 'bg-amber-50 text-amber-900', rec!.pending, 'Nothing pending.'], ['Lost / not recovered', 'bg-red-50 text-red-900', rec!.lost, 'Nothing lost so far.']] as const).map(([t, c, items, none]) => (
-              <div key={t} className={`rounded p-2 ${c}`}><div className="mb-1 font-semibold">{t}</div>{items.length ? <ul className="list-disc pl-4">{items.map((i) => <li key={i}>{i}</li>)}</ul> : <p>{none}</p>}</div>
-            ))}
-          </div>
-        )}
-        {m && m.generated > 0 && <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-6"><Stat label="Request failures" value={m.failed} /><Stat label="Spans generated" value={m.spans} /><Stat label="Incomplete traces" value={m.incomplete} /><Stat label="Peak queue" value={m.maxQueue} /><Stat label="Export success" value={`${m.exportSuccessRate.toFixed(0)}%`} /><Stat label="Indexed / archived" value={`${m.indexed} / ${m.archivedTraces}`} /></div>}
+        {probe.text && <p className="mt-2 text-xs text-slate-600">Last test: <b>{probe.text}</b></p>}
+        <p className="mt-1 text-xs text-slate-500">{anyFault ? 'A fault is currently active.' : 'No faults active: the system is healthy.'}</p>
       </Panel>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        {SVCS.map((s) => {
+          const up = f?.services[s] === 'up'; const cur = f?.faults[s];
+          return (
+            <Panel key={s} title={`Service ${s}`} right={<Badge tone={up ? 'green' : 'red'}>{up ? 'running' : 'DOWN'}</Badge>}>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Error rate (%)"><input className="input" type="number" min={0} max={100} value={draft[s].err} onChange={(e) => setDraft({ ...draft, [s]: { ...draft[s], err: Number(e.target.value) } })} /></Field>
+                <Field label="Extra latency (ms)"><input className="input" type="number" min={0} max={30000} step={100} value={draft[s].lat} onChange={(e) => setDraft({ ...draft, [s]: { ...draft[s], lat: Number(e.target.value) } })} /></Field>
+              </div>
+              <p className="mb-2 text-[11px] text-slate-500">Active now: {cur ? `${Math.round(cur.errorRate * 100)}% errors, +${cur.extraLatencyMs} ms` : '-'}</p>
+              <div className="flex gap-2">
+                <button className="btn btn-primary btn-sm" disabled={!ok} onClick={() => apply(s)}>Apply</button>
+                {up ? <button className="btn btn-danger btn-sm" disabled={!ok} onClick={() => act(() => api.crash(s))}><Skull size={12} />Crash</button> : <button className="btn btn-primary btn-sm" disabled={!ok} onClick={() => act(() => api.recover(s))}><HeartPulse size={12} />Recover</button>}
+              </div>
+            </Panel>
+          );
+        })}
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ChartCard title="Error rate (last 5 min)" sub="% of requests failing" empty={!pts.some((p) => p.requests)}><TimeChart area unit="%" data={pts.map((p) => ({ ...p, errorRate: p.requests ? p.errorRate : null }))} series={[{ key: 'errorRate', name: 'error %', color: COLORS.red }]} /></ChartCard>
+        <ChartCard title="Latency (last 5 min)" sub="average and p95, ms" empty={!pts.some((p) => p.requests)}><TimeChart data={pts.map((p) => ({ ...p, avgLatencyMs: p.requests ? p.avgLatencyMs : null, p95LatencyMs: p.requests ? p.p95LatencyMs : null }))} series={[{ key: 'avgLatencyMs', name: 'average', color: COLORS.violet }, { key: 'p95LatencyMs', name: 'p95', color: COLORS.amber }]} /></ChartCard>
+      </div>
     </div>
   );
 }

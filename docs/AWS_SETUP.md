@@ -1,4 +1,4 @@
-# AWS guide: S3 archival, CloudWatch, optional EC2
+# AWS guide: S3 archive and CloudWatch monitoring
 
 Nothing here creates a paid resource by itself. Run each command yourself after reading its cost note.
 S3 for lab-scale data costs cents per month (check the AWS pricing page for your region). **Do not create a managed OpenSearch domain** (costly).
@@ -13,7 +13,7 @@ If `get-caller-identity` fails: `aws configure sso` / `aws sso login`, or `aws c
 
 ## 2. Create a private bucket (bucket names are global: add a random suffix)
 ```powershell
-$B = "ps21-telemetry-archive-<yourname>-<random>"
+$B = "traceflow-archive-<yourname>-<random>"
 $R = "ap-south-1"
 aws s3api create-bucket --bucket $B --region $R --create-bucket-configuration LocationConstraint=$R
 aws s3api put-public-access-block --bucket $B --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
@@ -33,7 +33,7 @@ Attach to the IAM user/role that the backend uses (replace BUCKET):
 ```
 (`DeleteObject` is only needed by `verify-s3` to remove its own test object.)
 
-## 4. Verify against the REAL bucket
+## 4. Verify the bucket from the command line
 ```powershell
 cd backend
 $env:S3_BUCKET = $B; $env:AWS_REGION = $R
@@ -41,47 +41,51 @@ npm run verify:s3
 ```
 Expected: all `PASS` and "S3 verification PASSED". Any `FAIL` line names the IAM action that is missing.
 
-## 5. Run archival from the stack
-Add to `.env` (no keys!): `S3_BUCKET=...`, `AWS_REGION=...`, `AWS_PROFILE=default`, then use the override that mounts your AWS profile read-only:
-```powershell
-docker compose -f docker-compose.yml -f docker-compose.aws.yml up -d --build backend
+## 3b. IAM policy for CloudWatch (add to the same user/role)
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Sid": "PublishMetrics", "Effect": "Allow", "Action": "cloudwatch:PutMetricData", "Resource": "*",
+      "Condition": { "StringEquals": { "cloudwatch:namespace": "TraceFlow/Telemetry" } } },
+    { "Sid": "ReadAndAlarm", "Effect": "Allow", "Action": ["cloudwatch:GetMetricData", "cloudwatch:PutMetricAlarm", "cloudwatch:DescribeAlarms"], "Resource": "*" }
+  ]
+}
 ```
-If you use SSO: `aws sso login` first. Then **Real Telemetry -> Archive last 60 min to S3**, or:
-```powershell
-curl.exe -X POST http://localhost:4000/archive -H "content-type: application/json" -d "{\"sinceMinutes\":60}"
-aws s3 ls s3://$B/telemetry/ --recursive
-```
-Response contains `status: "archived"`, `verified: true`, bucket, key, bytes, span/trace counts. `verified` means HeadObject returned the same size and SHA-256 metadata that was uploaded. If OpenSearch has no spans you get `status: "empty"` and nothing is uploaded.
 
-> **Status:** the S3 code path is tested against a local S3-compatible server (`s3rver`) in `backend/test/archive.test.mjs`. It has **not** been run against real AWS from the delivery environment (no AWS credentials available there). Step 4 is how you prove it on your account.
+## 5. Connect the app to S3 and CloudWatch
+Edit `.env` (no keys!):
+```
+S3_BUCKET=<your bucket>
+AWS_REGION=<bucket region>
+AWS_PROFILE=default
+CLOUDWATCH_ENABLED=true
+```
+Start with your AWS profile mounted read-only (SSO users: `aws sso login` first):
+```powershell
+cd backend; npm install; cd ..
+docker compose -f docker-compose.yml -f docker-compose.aws.yml up -d --build
+```
+Check in the UI, page **AWS Cloud**: both badges say *connected*.
+- **S3:** send traffic, wait ~30 s (indexing), press **Archive to S3** → result shows *verified*; the object appears in the list. Also: `aws s3 ls s3://$B/telemetry/ --recursive`.
+  `verified` means HeadObject returned the same size and SHA-256 metadata that was uploaded. If OpenSearch has no spans you get `empty` and nothing is uploaded.
+- **CloudWatch:** metrics are published automatically every 60 s while traffic flows (or press **Publish now**). Charts on the page are read back *from CloudWatch*, so seeing them proves the data arrived (allow 1-2 min). Create the error-rate alarm with the **Create alarm** button.
+  In the AWS console: CloudWatch → Metrics → All metrics → custom namespace **TraceFlow/Telemetry**.
+
+Metrics published (dimension `Environment`): `Requests`, `FailedRequests`, `ErrorRatePercent`, `AvgLatencyMs`, `P95LatencyMs`, `SpansExported`, `IndexedSpans`.
 
 ## 6. "Cold" storage class (optional)
-Archive objects are small. IA/Glacier classes bill a 128 KB minimum per object and have minimum retention, so for lab data keep STANDARD unless you want to demonstrate tiering. To demonstrate: set `S3_STORAGE_CLASS=STANDARD_IA`, or add a lifecycle rule:
+Keep STANDARD for lab data (IA/Glacier bill a 128 KB minimum per object). To demonstrate tiering set `S3_STORAGE_CLASS=STANDARD_IA` or add a lifecycle rule:
 ```powershell
 @'
-{"Rules":[{"ID":"ps21-cold","Status":"Enabled","Filter":{"Prefix":"telemetry/"},
+{"Rules":[{"ID":"traceflow-cold","Status":"Enabled","Filter":{"Prefix":"telemetry/"},
  "Transitions":[{"Days":30,"StorageClass":"STANDARD_IA"}],"Expiration":{"Days":90}}]}
 '@ | Set-Content lifecycle.json
 aws s3api put-bucket-lifecycle-configuration --bucket $B --lifecycle-configuration file://lifecycle.json
 ```
 
-## 7. CloudWatch (optional monitoring)
-S3 publishes daily storage metrics to CloudWatch for free:
-```powershell
-aws cloudwatch get-metric-statistics --namespace AWS/S3 --metric-name BucketSizeBytes `
-  --dimensions Name=BucketName,Value=$B Name=StorageType,Value=StandardStorage `
-  --start-time (Get-Date).AddDays(-3).ToString("s") --end-time (Get-Date).ToString("s") --period 86400 --statistics Average --region $R
-```
-Cost guard alarm (alarm if the archive exceeds 1 GB; needs an SNS topic ARN for notifications, optional):
-```powershell
-aws cloudwatch put-metric-alarm --alarm-name ps21-archive-size --namespace AWS/S3 --metric-name BucketSizeBytes `
-  --dimensions Name=BucketName,Value=$B Name=StorageType,Value=StandardStorage --statistic Average --period 86400 `
-  --evaluation-periods 1 --threshold 1073741824 --comparison-operator GreaterThanThreshold --region $R
-```
-If you deploy on EC2, CPU/network metrics appear automatically in CloudWatch (namespace `AWS/EC2`). The app itself does not push custom metrics to CloudWatch.
+## 7. Cost
+S3 at lab scale: cents/month. CloudWatch: the first 10 custom metrics and 10 alarms are in the free tier; this app publishes 7 metrics and 1 alarm. GetMetricData calls are billed per metric requested - negligible for a demo. Always check the AWS pricing page for your region.
+Do **not** create a managed OpenSearch domain (costly).
 
-## 8. Optional: run the whole stack on EC2 (NOT required)
-- OpenSearch with a 512 MB heap needs a 4 GB machine (e.g. `t3.medium`; about a few cents per hour: confirm on the pricing page).
-- Console: launch Ubuntu 24.04, 30 GB gp3, security group allowing **only your IP** on SSH (22). Do **not** open 9200/5601/4000 publicly (OpenSearch security is disabled in this lab). Use `ssh -L 5601:localhost:5601 -L 4000:localhost:4000 ...` to reach them.
-- Attach an IAM role with the policy in step 3 (no keys on the box), install Docker, clone the repo, `docker compose up -d --build`.
-- **Stop or terminate the instance when done** (see `docs/CLEANUP.md`); a running instance and its EBS volume bill until deleted.
+> **Status:** the S3 and CloudWatch code is tested against a local S3 server and a fake CloudWatch (see `backend/test`). Step 5 is how you prove it against your real AWS account.

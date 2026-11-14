@@ -6,7 +6,7 @@ import { S3Client, HeadBucketCommand, PutObjectCommand, HeadObjectCommand, GetOb
 const bucket = process.env.S3_BUCKET; const prefix = (process.env.S3_PREFIX ?? 'telemetry/').replace(/^\/+/, '');
 if (!bucket) { console.error('Set S3_BUCKET first.'); process.exit(2); }
 const s3 = new S3Client({ region: process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION, ...(process.env.S3_ENDPOINT ? { endpoint: process.env.S3_ENDPOINT, forcePathStyle: true } : {}) });
-const key = `${prefix}_verify/ps21-verify-${Date.now()}.txt`; const body = `ps21 s3 verification ${new Date().toISOString()}`;
+const key = `${prefix}_verify/traceflow-verify-${Date.now()}.txt`; const body = `traceflow s3 verification ${new Date().toISOString()}`;
 let failed = false;
 const step = async (name, fn, hint) => {
   try { const r = await fn(); console.log(`PASS  ${name}${r ? '  ' + r : ''}`); return true; }

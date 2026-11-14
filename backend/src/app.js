@@ -1,6 +1,8 @@
-// Gateway / API (port 4000): /health, /simulate, /faults, /traces, /telemetry, /pipeline, /archive.
+// Gateway / API (port 4000): /health, /simulate, /faults, /traces, /telemetry, /pipeline, /metrics/history, /archive, /cloudwatch.
+// When STATIC_DIR is set it also serves the built web UI, so the whole product is reachable at one URL.
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
 import express from 'express';
 import cors from 'cors';
 import { mulberry32 } from './rng.js';
@@ -10,6 +12,8 @@ import { createServices, createFaultState } from './services.js';
 import { createOpenSearch } from './opensearch.js';
 import { createArchiver, ArchiveNotConfigured } from './archive.js';
 import { scrapeCollector } from './collectorMetrics.js';
+import { createHistory } from './history.js';
+import { createCloudWatch, CloudWatchDisabled } from './cloudwatch.js';
 
 const ROLES = ['A', 'B', 'C'];
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -37,6 +41,21 @@ export function createApp(config, overrides = {}) {
   const services = createServices({ config, telemetry, faults });
   const opensearch = overrides.opensearch ?? createOpenSearch(config);
   const archiver = overrides.archiver ?? createArchiver({ config, opensearch });
+  const history = overrides.history ?? createHistory({
+    intervalMs: config.historyIntervalMs,
+    // Snapshot of the pipeline counters stored with every time-series point (null when a component is unreachable).
+    probe: async () => {
+      const [col, cnt] = await Promise.all([
+        scrapeCollector(config.collectorMetricsUrl).catch(() => null),
+        opensearch.countSpans().catch(() => null),
+      ]);
+      return { sdkGenerated: Object.values(telemetry.stats.generated).reduce((a, b) => a + b, 0), sdkExported: telemetry.stats.exportedSpans, collectorReceived: col?.receivedSpans ?? null, collectorExported: col?.exportedSpans ?? null, indexedSpans: cnt };
+    },
+  });
+  const cloudwatch = overrides.cloudwatch ?? createCloudWatch({
+    config, adapter: overrides.cloudwatchAdapter,
+    getGauges: async () => ({ sdkExportedSpans: telemetry.stats.exportedSpans, indexedSpans: await opensearch.countSpans().catch(() => undefined) }),
+  });
   const recent = []; // newest last
   const counters = { requests: 0, ok: 0, failed: 0, runs: 0 };
   let inflight = 0; let shuttingDown = false; let apiServer;
@@ -55,7 +74,8 @@ export function createApp(config, overrides = {}) {
   });
 
   app.get('/config', (_req, res) => res.json({
-    dashboardsUrl: config.dashboardsUrl, s3Configured: archiver.configured(), s3Bucket: config.s3.bucket || null, s3Prefix: config.s3.prefix,
+    dashboardsUrl: config.dashboardsUrl, s3Configured: archiver.configured(), s3Bucket: config.s3.bucket || null, s3Prefix: config.s3.prefix, s3Region: config.s3.region ?? null,
+    cloudwatchEnabled: cloudwatch.enabled(), cloudwatchNamespace: config.cloudwatch.namespace, awsRegion: config.cloudwatch.region ?? config.s3.region ?? null,
     pipelineSettleMs: config.pipelineSettleMs, limits: config.limits,
   }));
 
@@ -88,6 +108,7 @@ export function createApp(config, overrides = {}) {
     }));
     const dur = results.map((r) => r.durationMs).sort((a, b) => a - b);
     const ok = results.filter((r) => r.status === 'ok').length;
+    for (const r of results) { const rec = { ok: r.status === 'ok', durationMs: r.durationMs }; history.record(rec); cloudwatch.record(rec); }
     counters.runs += 1; counters.requests += results.length; counters.ok += ok; counters.failed += results.length - ok;
     for (const r of results) if (r.traceId) { recent.push({ runId, traceId: r.traceId, status: r.status, startedAt: r.startedAt, endedAt: r.startedAt + r.durationMs, durationMs: r.durationMs, failedService: r.failedService, spanCount: r.spans.length }); }
     while (recent.length > 1000) recent.shift();
@@ -130,6 +151,11 @@ export function createApp(config, overrides = {}) {
     res.json(out);
   });
 
+  app.get('/metrics/history', (req, res) => {
+    const minutes = Math.min(Math.max(Number.parseFloat(req.query.minutes ?? '15') || 15, 1), 60);
+    res.json({ intervalMs: config.historyIntervalMs, points: history.series(minutes) });
+  });
+
   app.get('/faults', (_req, res) => res.json({ faults, services: Object.fromEntries(ROLES.map((r) => [r, services.isUp(r) ? 'up' : 'down'])) }));
   app.post('/faults', (req, res) => {
     const { service, errorRate, extraLatencyMs } = req.body ?? {};
@@ -164,6 +190,23 @@ export function createApp(config, overrides = {}) {
     catch (e) { if (e instanceof ArchiveNotConfigured) return res.status(503).json({ error: 'archive_not_configured' }); res.status(502).json({ error: 'list_failed', message: e.message }); }
   });
 
+  // ---- Amazon CloudWatch ----
+  const cwFail = (res, e) => {
+    if (e instanceof CloudWatchDisabled) return res.status(503).json({ error: 'cloudwatch_disabled', message: 'CloudWatch is off. Set CLOUDWATCH_ENABLED=true (and AWS credentials/region) - see docs/AWS_SETUP.md' });
+    log('error', 'cloudwatch call failed', { message: e.message, name: e.name });
+    return res.status(502).json({ error: 'cloudwatch_failed', name: e.name, message: e.message });
+  };
+  app.get('/cloudwatch/status', (_req, res) => res.json(cloudwatch.status()));
+  app.post('/cloudwatch/publish', async (_req, res) => { try { res.json(await cloudwatch.publish({ force: true })); } catch (e) { cwFail(res, e); } });
+  app.get('/cloudwatch/metrics', async (req, res) => {
+    const minutes = Math.min(Math.max(Number.parseInt(req.query.minutes ?? '30', 10) || 30, 5), 180);
+    try { res.json(await cloudwatch.metrics({ minutes })); } catch (e) { cwFail(res, e); }
+  });
+  app.get('/cloudwatch/alarms', async (_req, res) => { try { res.json(await cloudwatch.alarms()); } catch (e) { cwFail(res, e); } });
+  app.post('/cloudwatch/alarms', async (_req, res) => { try { res.json(await cloudwatch.createAlarm()); } catch (e) { cwFail(res, e); } });
+
+  if (config.staticDir && fs.existsSync(config.staticDir)) app.use(express.static(config.staticDir, { maxAge: '1h' }));
+
   app.use((_req, res) => res.status(404).json({ error: 'not_found' }));
   app.use((err, _req, res, _next) => {
     if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'invalid_json' });
@@ -171,21 +214,24 @@ export function createApp(config, overrides = {}) {
   });
 
   return {
-    app, telemetry, services, faults,
+    app, telemetry, services, faults, history, cloudwatch,
     async start() {
       await services.startAll();
+      history.start(); cloudwatch.start();
       apiServer = http.createServer(app);
       await new Promise((resolve, reject) => { apiServer.once('error', reject); apiServer.listen(config.apiPort, config.host, resolve); });
       return apiServer.address().port;
     },
     async stop() {
       shuttingDown = true;
+      history.stop();
       const deadline = Date.now() + 10000;
       while (inflight > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
       if (apiServer) { apiServer.closeIdleConnections?.(); await new Promise((r) => apiServer.close(() => r())); }
       await services.stopAll();
       // Bounded: if the Collector is down, don't hang the container's stop for the whole export timeout.
       const bound = (p) => Promise.race([p, new Promise((r) => setTimeout(r, 5000))]);
+      await bound(cloudwatch.stop().catch(() => {})); // last CloudWatch publish so no data is lost on shutdown
       await bound(telemetry.forceFlush().catch(() => {}));
       await bound(telemetry.shutdown());
     },

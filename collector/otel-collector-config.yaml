@@ -1,4 +1,4 @@
-# OpenTelemetry Collector (contrib) - PS21 pipeline:
+# OpenTelemetry Collector (contrib) - TraceFlow pipeline:
 #   OTLP receiver -> memory_limiter -> tail_sampling -> batch -> OTLP exporter -> Data Prepper -> OpenSearch
 # Tested against otelcol-contrib v0.165.0 (`otelcol-contrib validate --config ...`).
 # Values like ${env:NAME:-default} can be overridden from docker-compose / .env (used by the benchmarks).

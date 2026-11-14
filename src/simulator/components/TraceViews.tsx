@@ -53,13 +53,13 @@ export function TraceTable({ traces, selectedId, onSelect, filters = true, limit
       {!traces.length ? <Empty>No traces yet. Press <b>Start Simulation</b> and requests will appear here as they are generated.</Empty> : (
         <div className="max-h-full overflow-auto rounded border border-slate-200">
           <table className="w-full text-left text-xs">
-            <thead className="sticky top-0 bg-indigo-50 text-indigo-900"><tr>
+            <thead className="sticky top-0 bg-sky-50 text-sky-900"><tr>
               {['Trace ID', 'Virtual time', 'Services', 'Duration', 'Status', 'Sampling', 'Indexing'].map((h) => <th key={h} className="px-2 py-1.5 font-semibold">{h}</th>)}
             </tr></thead>
             <tbody>
               {rows.map((t) => (
                 <tr key={t.id} tabIndex={0} onClick={() => onSelect(t)} onKeyDown={(e) => e.key === 'Enter' && onSelect(t)}
-                  className={`cursor-pointer border-t border-slate-100 hover:bg-indigo-50 ${selectedId === t.id ? 'bg-indigo-100' : ''}`}>
+                  className={`cursor-pointer border-t border-slate-100 hover:bg-sky-50 ${selectedId === t.id ? 'bg-sky-100' : ''}`}>
                   <td className="px-2 py-1 font-mono">{t.id.slice(0, 12)}…</td>
                   <td className="px-2 py-1">{(t.startMs / 1000).toFixed(2)} s</td>
                   <td className="px-2 py-1">{t.services.length ? t.services.join(' → ') : 'A → …'}</td>
@@ -87,7 +87,7 @@ export function TraceDetail({ trace, onClose }: { trace: Trace; onClose?: () => 
   return (
     <div className="panel text-xs">
       <div className="mb-2 flex items-start justify-between gap-2">
-        <div><div className="text-sm font-semibold text-indigo-950">Trace detail</div><div className="break-all font-mono text-[11px] text-slate-600">{trace.id}</div></div>
+        <div><div className="text-sm font-semibold text-slate-900">Trace detail</div><div className="break-all font-mono text-[11px] text-slate-600">{trace.id}</div></div>
         <div className="flex items-center gap-2">{statusBadge(trace)}{samplingBadge(trace)}{indexBadge(trace)}{onClose && <button className="btn btn-ghost !py-0.5" onClick={onClose}>Close</button>}</div>
       </div>
       {!done ? <Empty>This request is still in progress. Spans are recorded when the request completes.</Empty> : (
@@ -96,7 +96,7 @@ export function TraceDetail({ trace, onClose }: { trace: Trace; onClose?: () => 
           <div className="space-y-1">
             {trace.spans.map((s, i) => {
               const left = ((s.startMs - trace.startMs) / total) * 100, w = Math.max(0.8, ((s.endMs - s.startMs) / total) * 100);
-              const color = s.origin ? 'bg-red-500' : s.status === 'error' ? 'bg-red-300' : i === slowest ? 'bg-amber-500' : 'bg-indigo-500';
+              const color = s.origin ? 'bg-red-500' : s.status === 'error' ? 'bg-red-300' : i === slowest ? 'bg-amber-500' : 'bg-sky-500';
               return (
                 <div key={s.id} className="flex items-center gap-2">
                   <div className="w-28 shrink-0 truncate" style={{ paddingLeft: i * 10 }}>Service {s.service}</div>
@@ -119,7 +119,7 @@ export function TraceDetail({ trace, onClose }: { trace: Trace; onClose?: () => 
             </tbody>
           </table>
           <div className="mt-3 grid gap-2 md:grid-cols-2">
-            <div className="rounded bg-violet-50 p-2"><b>Sampling:</b> {trace.sampling.reason}</div>
+            <div className="rounded bg-sky-50 p-2"><b>Sampling:</b> {trace.sampling.reason}</div>
             <div className="rounded bg-blue-50 p-2">
               <b>Pipeline outcome:</b> export {trace.export}{trace.exportedAt != null && ` at ${at(trace.exportedAt)}`}{trace.exportNote && ` (${trace.exportNote})`}; index {trace.index}{trace.indexedAt != null && ` at ${at(trace.indexedAt)}`}; archive {trace.archive}{trace.archivedAt != null && ` at ${at(trace.archivedAt)}`}.
             </div>

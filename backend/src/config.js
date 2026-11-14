@@ -1,5 +1,6 @@
 // Central environment configuration. No secrets are hardcoded: AWS credentials come from the
 // standard AWS SDK credential chain (env vars, shared config/SSO, or an IAM role).
+const bool = (v) => ['1', 'true', 'yes', 'on'].includes(String(v ?? '').toLowerCase());
 const int = (v, d) => {
   if (v === undefined || v === '') return d;
   const n = Number.parseInt(v, 10);
@@ -12,7 +13,7 @@ export function loadConfig(env = process.env) {
     apiPort: int(env.API_PORT, 4000),
     serviceHost: env.SERVICE_HOST ?? '127.0.0.1', // internal A/B/C listeners stay on loopback
     servicePorts: { A: int(env.SERVICE_A_PORT, 4001), B: int(env.SERVICE_B_PORT, 4002), C: int(env.SERVICE_C_PORT, 4003) },
-    corsOrigins: (env.CORS_ORIGINS ?? 'http://localhost:5173,http://127.0.0.1:5173,https://ps21vlab.netlify.app')
+    corsOrigins: (env.CORS_ORIGINS ?? 'http://localhost:5173,http://127.0.0.1:5173')
       .split(',').map((s) => s.trim()).filter(Boolean),
     serviceTimeoutMs: int(env.SERVICE_TIMEOUT_MS, 5000),
     otlpEndpoint: (env.OTEL_EXPORTER_OTLP_ENDPOINT ?? 'http://localhost:4318').replace(/\/$/, ''),
@@ -36,6 +37,17 @@ export function loadConfig(env = process.env) {
       storageClass: env.S3_STORAGE_CLASS || undefined, // e.g. STANDARD_IA, GLACIER_IR
       maxSpansPerArchive: int(env.ARCHIVE_MAX_SPANS, 50000),
     },
+    // Amazon CloudWatch: custom metrics published by the backend (see cloudwatch.js). Credentials: SDK default chain / IAM role.
+    cloudwatch: {
+      enabled: bool(env.CLOUDWATCH_ENABLED),
+      namespace: env.CLOUDWATCH_NAMESPACE ?? 'TraceFlow/Telemetry',
+      region: env.AWS_REGION ?? env.AWS_DEFAULT_REGION,
+      intervalSec: int(env.CLOUDWATCH_INTERVAL_SEC, 60),
+      environment: env.DEPLOY_ENV ?? 'local', // metric dimension: separates local runs from the deployed server
+      errorAlarmPct: int(env.CLOUDWATCH_ERROR_ALARM_PCT, 20),
+    },
+    historyIntervalMs: int(env.HISTORY_INTERVAL_MS, 5000), // dashboard time-series sampling (0 = off)
+    staticDir: env.STATIC_DIR ?? '', // when set, the backend also serves the built web UI (single-URL deployment)
     limits: { maxCount: int(env.MAX_REQUESTS_PER_SIMULATE, 2000), maxConcurrency: 100 },
   };
 }

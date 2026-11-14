@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Simulator } from './engine/simulationEngine';
 import { computeMetrics } from './engine/metrics';
 import type { Config } from './engine/types';
-import type { RunResult } from './engine/experiments';
 
 /** Owns the live Simulator instance and the real-time timer that advances its virtual clock. */
 export function useLab() {
@@ -41,25 +40,3 @@ export function useLab() {
 }
 export type Lab = ReturnType<typeof useLab>;
 
-const KEY = 'ps21.savedRuns.v1';
-export function useSavedRuns() {
-  const [runs, setRuns] = useState<RunResult[]>(() => { try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) : []; } catch { return []; } });
-  const [error, setError] = useState<string | null>(null);
-  const persist = (next: RunResult[]) => {
-    try { localStorage.setItem(KEY, JSON.stringify(next)); setError(null); }
-    catch { setError('Could not write to browser storage (full or disabled). Runs are kept for this session only - use Export JSON to back them up.'); }
-    setRuns(next);
-  };
-  return {
-    runs, error,
-    add: (rs: RunResult[]) => persist([...runs, ...rs]),
-    remove: (id: string) => persist(runs.filter((r) => r.id !== id)),
-    clear: () => persist([]),
-  };
-}
-export type Saved = ReturnType<typeof useSavedRuns>;
-
-export function download(name: string, text: string, mime: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: mime }));
-  const a = document.createElement('a'); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url);
-}

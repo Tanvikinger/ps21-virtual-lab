@@ -5,12 +5,12 @@ const mockFetch = (status: number, body: unknown) => vi.stubGlobal('fetch', vi.f
 afterEach(() => vi.unstubAllGlobals());
 
 describe('realApi (client for the real backend)', () => {
-  it('defaults to http://localhost:4000 when nothing is configured', () => { expect(getApiBase()).toBe('http://localhost:4000'); });
+  it('uses the same server when the UI is served by the backend (no dev server)', () => { expect(getApiBase()).toBe(''); });
   it('calls the backend URL and returns parsed JSON', async () => {
     mockFetch(200, { status: 'ok', services: { A: 'up', B: 'up', C: 'up' } });
     const h = await api.health();
     expect(h.status).toBe('ok');
-    expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('http://localhost:4000/health');
+    expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('/health');
   });
   it('surfaces backend validation messages as ApiError', async () => {
     mockFetch(400, { error: 'validation_failed', details: ['count must be ...'] });
@@ -23,5 +23,10 @@ describe('realApi (client for the real backend)', () => {
   it('maps archive_not_configured (503) to the backend message', async () => {
     mockFetch(503, { error: 'archive_not_configured', message: 'Set S3_BUCKET' });
     await expect(api.archive(60)).rejects.toThrow('Set S3_BUCKET');
+  });
+  it('CloudWatch calls hit the /cloudwatch routes and surface the backend message', async () => {
+    mockFetch(503, { error: 'cloudwatch_disabled', message: 'CloudWatch is off' });
+    await expect(api.cwMetrics(30)).rejects.toThrow('CloudWatch is off');
+    expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('/cloudwatch/metrics?minutes=30');
   });
 });

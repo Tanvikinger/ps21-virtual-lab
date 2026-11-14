@@ -1,6 +1,6 @@
 // End-to-end check of the tail-sampling pipeline using the sink that is actually reachable.
 //   node scripts/verify-pipeline.mjs --sink opensearch:http://localhost:9200
-//   node scripts/verify-pipeline.mjs --sink file:/tmp/ps21-traces.jsonl      (sandbox overlay)
+//   node scripts/verify-pipeline.mjs --sink file:/tmp/traceflow-traces.jsonl      (sandbox overlay)
 // It sends a seeded workload, waits for the tail-sampling window, then asserts on what was really stored.
 import { readSink } from './lib/sinks.mjs';
 
