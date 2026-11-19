@@ -57,38 +57,15 @@ export function DashboardPage({ b }: { b: Backend }) {
             <Stat label="Spans searchable (OpenSearch)" value={m?.opensearch?.indexedSpans ?? '-'} sub={m?.opensearch?.reachable ? `cluster ${m.opensearch.clusterStatus}` : 'not reachable'} />
           </div>
 
-          <Panel title="Telemetry pipeline" sub="How many spans reached each stage (cumulative since the backend started).">
-            <div className="flex flex-wrap items-stretch gap-2">
-              <Stage name="Services A → B → C" sub="spans generated (SDK)" value={String(m?.sdk.generatedTotal ?? 0)} tone={svc && Object.values(svc).every((v) => v === 'up') ? 'green' : 'red'} />
-              <ArrowRight className="hidden self-center text-slate-300 md:block" size={18} />
-              <Stage name="OpenTelemetry Collector" sub="received" value={c ? String(c.receivedSpans) : 'n/a'} tone={c ? 'green' : 'red'} />
-              <ArrowRight className="hidden self-center text-slate-300 md:block" size={18} />
-              <Stage name="Tail sampling + batching" sub={c ? `${c.batch.sends} batches · avg ${c.batch.avgBatchSize.toFixed(1)} spans` : ''} value={c ? String(c.exportedSpans) : 'n/a'} tone={c ? 'green' : 'slate'} />
-              <ArrowRight className="hidden self-center text-slate-300 md:block" size={18} />
-              <Stage name="OpenSearch index" sub="span documents" value={String(m?.opensearch?.indexedSpans ?? 'n/a')} tone={m?.opensearch?.reachable ? 'green' : 'red'} />
-              <ArrowRight className="hidden self-center text-slate-300 md:block" size={18} />
-              <Stage name="Amazon S3 archive" sub={b.cfg?.s3Configured ? 'configured' : 'not configured'} value={b.cfg?.s3Configured ? 'Ready' : 'Off'} tone={b.cfg?.s3Configured ? 'green' : 'slate'} />
-            </div>
-            {m?.collectorError && <p className="mt-2 text-xs text-amber-800">Collector metrics unavailable: {m.collectorError}</p>}
-          </Panel>
+          
 
           <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
             <ChartCard title="Throughput" sub="requests per second" empty={!traffic.length}><TimeChart area data={pts} series={[{ key: 'rps', name: 'req/s', color: COLORS.blue }]} /></ChartCard>
             <ChartCard title="Latency" sub="average and p95 per interval, ms" empty={!traffic.length}><TimeChart data={pts.map((p) => ({ ...p, avgLatencyMs: p.requests ? p.avgLatencyMs : null, p95LatencyMs: p.requests ? p.p95LatencyMs : null }))} series={[{ key: 'avgLatencyMs', name: 'average', color: COLORS.violet }, { key: 'p95LatencyMs', name: 'p95', color: COLORS.amber }]} /></ChartCard>
             <ChartCard title="Error rate" sub="% of requests that failed" empty={!traffic.length}><TimeChart area unit="%" data={pts.map((p) => ({ ...p, errorRate: p.requests ? p.errorRate : null }))} series={[{ key: 'errorRate', name: 'error %', color: COLORS.red }]} /></ChartCard>
-            <ChartCard title="Spans through the pipeline" sub="cumulative: generated → Collector → exported → indexed" empty={!pts.length}>
-              <TimeChart data={pts} series={[{ key: 'sdkGenerated', name: 'generated', color: COLORS.slate }, { key: 'collectorReceived', name: 'collector received', color: COLORS.blue }, { key: 'collectorExported', name: 'exported', color: COLORS.violet }, { key: 'indexedSpans', name: 'indexed', color: COLORS.green }]} />
-            </ChartCard>
-            <ChartCard title="Tail-sampling decisions" sub="traces kept per policy (a trace can match several)" empty={!policies.length}>
-              <BarsChart data={policies.map(([k, v]) => ({ name: polName(k), value: v.sampled, color: polColor(k) }))} />
-            </ChartCard>
-            <ChartCard title="Service health" sub="current state of the three services">
-              <div className="flex h-full flex-col justify-center gap-3">
-                {(['A', 'B', 'C'] as const).map((s) => (
-                  <div key={s} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm"><span className="flex items-center gap-2 font-medium"><Dot tone={svc?.[s] === 'up' ? 'green' : 'red'} />Service {s}</span><span className={svc?.[s] === 'up' ? 'text-emerald-700' : 'font-semibold text-rose-700'}>{svc?.[s] === 'up' ? 'running' : 'DOWN'}</span></div>
-                ))}
-              </div>
-            </ChartCard>
+            
+          
+            
           </div>
         </>
       )}
